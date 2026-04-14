@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const youtubedl = require('yt-dlp-exec');
 
 const app = express();
 
@@ -13,7 +13,7 @@ app.use(express.json());
 const DOWNLOAD_DIR = '/tmp';
 
 app.post('/download', async (req, res) => {
-  const { url } = req.body;
+  const { url, quality, audio } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL required' });
@@ -25,42 +25,66 @@ app.post('/download', async (req, res) => {
     const filename = `insta_${Date.now()}.mp4`;
     const outputPath = path.join(DOWNLOAD_DIR, filename);
 
-    // ✅ Use yt-dlp binary (no python needed)
-    const cmd = `yt-dlp -f best --recode-video mp4 -o "${outputPath}" "${cleanUrl}"`;
+    console.log('🚀 Downloading:', cleanUrl);
 
-    console.log('🚀 Running:', cmd);
+    // ✅ Build format dynamically
+    let format = 'bestvideo+bestaudio/best';
 
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        console.error('❌ Exec error:', error);
-        return res.status(500).json({ error: 'Download failed' });
+    if (!audio) {
+      format = 'bestvideo';
+    }
+
+    if (quality === '480p') {
+      format = 'bestvideo[height<=480]+bestaudio/best';
+    } else if (quality === '720p') {
+      format = 'bestvideo[height<=720]+bestaudio/best';
+    } else if (quality === '1080p') {
+      format = 'bestvideo[height<=1080]+bestaudio/best';
+    }
+
+    // ✅ Run yt-dlp (no exec, no apt-get)
+    await youtubedl(cleanUrl, {
+      output: outputPath,
+      format: format,
+      mergeOutputFormat: 'mp4',
+      noCheckCertificates: true,
+      noWarnings: true
+    });
+
+    console.log('✅ File ready:', outputPath);
+
+    // ✅ Send file to frontend
+    res.download(outputPath, filename, (err) => {
+      if (err) {
+        console.error('❌ Send error:', err);
       }
 
-      console.log('✅ Download complete');
-
-      res.download(outputPath, filename, (err) => {
-        if (err) console.error('❌ Send error:', err);
-
-        // cleanup
-        try {
-          fs.unlinkSync(outputPath);
-        } catch {}
-      });
+      // 🧹 Cleanup
+      try {
+        fs.unlinkSync(outputPath);
+        console.log('🗑 Deleted:', filename);
+      } catch (e) {
+        console.log('⚠ Cleanup skipped');
+      }
     });
 
   } catch (err) {
-    console.error('❌ Error:', err.message);
+    console.error('❌ FULL ERROR:', err);
 
     res.status(500).json({
-      error: 'Download failed. Make sure the URL is public.'
+      error: 'Download failed. Instagram may be blocking the request.'
     });
   }
 });
 
 // ✅ Health check
 app.get('/', (req, res) => {
-  res.send('🚀 Backend running');
+  res.send('🚀 Insta Downloader API is running');
 });
 
+// ✅ Port (Render compatible)
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`✅ Server running on ${PORT}`));
+
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+});
