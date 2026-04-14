@@ -2,18 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const youtubedl = require('yt-dlp-exec');
+const { exec } = require('child_process');
 
 const app = express();
 
-// ✅ Middleware
 app.use(cors());
 app.use(express.json());
 
-// ✅ Use /tmp for Render (important)
+// ✅ Render temp directory
 const DOWNLOAD_DIR = '/tmp';
 
-// ✅ API Route
 app.post('/download', async (req, res) => {
   const { url } = req.body;
 
@@ -22,36 +20,32 @@ app.post('/download', async (req, res) => {
   }
 
   try {
-    // ✅ Clean URL
     const cleanUrl = url.split('?')[0];
 
     const filename = `insta_${Date.now()}.mp4`;
     const outputPath = path.join(DOWNLOAD_DIR, filename);
 
-    console.log('🚀 Downloading:', cleanUrl);
+    // ✅ Use yt-dlp binary (no python needed)
+    const cmd = `yt-dlp -f best --recode-video mp4 -o "${outputPath}" "${cleanUrl}"`;
 
-    // ✅ Download using yt-dlp
-    await youtubedl(cleanUrl, {
-      output: outputPath,
-      format: 'best',
-      recodeVideo: 'mp4'
-    });
+    console.log('🚀 Running:', cmd);
 
-    console.log('✅ File ready:', outputPath);
-
-    // ✅ Send file
-    res.download(outputPath, filename, (err) => {
-      if (err) {
-        console.error('❌ Send error:', err);
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error('❌ Exec error:', error);
+        return res.status(500).json({ error: 'Download failed' });
       }
 
-      // 🧹 Cleanup
-      try {
-        fs.unlinkSync(outputPath);
-        console.log('🗑 Deleted:', filename);
-      } catch (e) {
-        console.log('⚠ Cleanup skipped');
-      }
+      console.log('✅ Download complete');
+
+      res.download(outputPath, filename, (err) => {
+        if (err) console.error('❌ Send error:', err);
+
+        // cleanup
+        try {
+          fs.unlinkSync(outputPath);
+        } catch {}
+      });
     });
 
   } catch (err) {
@@ -63,14 +57,10 @@ app.post('/download', async (req, res) => {
   }
 });
 
-// ✅ Health check (IMPORTANT for testing)
+// ✅ Health check
 app.get('/', (req, res) => {
-  res.send('🚀 Insta Downloader API is running');
+  res.send('🚀 Backend running');
 });
 
-// ✅ Dynamic port (Render requirement)
 const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ Server running on ${PORT}`));
