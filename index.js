@@ -2,21 +2,18 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
-const util = require('util');
+const youtubedl = require('yt-dlp-exec');
 
-const execPromise = util.promisify(exec);
-
-const YTDLP = `C:\\Users\\Admin\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\yt-dlp.exe`;
-//
 const app = express();
+
+// ✅ Middleware
 app.use(cors());
 app.use(express.json());
 
+// ✅ Use /tmp for Render (important)
+const DOWNLOAD_DIR = '/tmp';
 
-const DOWNLOAD_DIR = path.join(__dirname, 'downloads');
-if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR);
-
+// ✅ API Route
 app.post('/download', async (req, res) => {
   const { url } = req.body;
 
@@ -25,52 +22,40 @@ app.post('/download', async (req, res) => {
   }
 
   try {
-    // ✅ Clean Instagram URL (remove ?params)
+    // ✅ Clean URL
     const cleanUrl = url.split('?')[0];
 
-    // 🎯 Dynamic filename
-    const filenameBase = `insta_${Date.now()}`;
-    const outputTemplate = path.join(DOWNLOAD_DIR, `${filenameBase}.%(ext)s`);
+    const filename = `insta_${Date.now()}.mp4`;
+    const outputPath = path.join(DOWNLOAD_DIR, filename);
 
-    // ✅ FINAL WORKING COMMAND (IMPORTANT)
-    const cmd = `"${YTDLP}" -f best --recode-video mp4 -o "${outputTemplate}" "${cleanUrl}"`;
+    console.log('🚀 Downloading:', cleanUrl);
 
-    console.log('🚀 Running:', cmd);
+    // ✅ Download using yt-dlp
+    await youtubedl(cleanUrl, {
+      output: outputPath,
+      format: 'best',
+      recodeVideo: 'mp4'
+    });
 
-    // ▶️ Run yt-dlp
-    await execPromise(cmd);
+    console.log('✅ File ready:', outputPath);
 
-    // 🧠 Find actual file
-    const files = fs.readdirSync(DOWNLOAD_DIR);
-    console.log('📂 Files:', files);
-
-    const matchedFile = files.find(f => f.startsWith(filenameBase));
-
-    if (!matchedFile) {
-      return res.status(404).json({ error: 'File not found after download' });
-    }
-
-    const finalPath = path.join(DOWNLOAD_DIR, matchedFile);
-
-    console.log('✅ Sending file:', finalPath);
-
-    // 📤 Send file
-    res.download(finalPath, matchedFile, (err) => {
+    // ✅ Send file
+    res.download(outputPath, filename, (err) => {
       if (err) {
         console.error('❌ Send error:', err);
       }
 
-      // 🧹 Delete after sending
+      // 🧹 Cleanup
       try {
-        fs.unlinkSync(finalPath);
-        console.log('🗑 Deleted:', matchedFile);
+        fs.unlinkSync(outputPath);
+        console.log('🗑 Deleted:', filename);
       } catch (e) {
-        console.log('⚠ Already removed');
+        console.log('⚠ Cleanup skipped');
       }
     });
 
   } catch (err) {
-    console.error('❌ Download error:', err.message);
+    console.error('❌ Error:', err.message);
 
     res.status(500).json({
       error: 'Download failed. Make sure the URL is public.'
@@ -78,7 +63,14 @@ app.post('/download', async (req, res) => {
   }
 });
 
-// 🚀 Start server
-app.listen(5000, () => {
-  console.log('✅ Server running on http://localhost:5000');
+// ✅ Health check (IMPORTANT for testing)
+app.get('/', (req, res) => {
+  res.send('🚀 Insta Downloader API is running');
+});
+
+// ✅ Dynamic port (Render requirement)
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
